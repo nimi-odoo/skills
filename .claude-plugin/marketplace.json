@@ -1,0 +1,14 @@
+{
+  "name": "nimi",
+  "owner": {
+    "name": "nimi"
+  },
+  "description": "nimi's skills, as an installable Claude Code plugin.",
+  "plugins": [
+    {
+      "name": "nimi-skills",
+      "source": "./",
+      "description": "Skills for working on Odoo projects locally: reproduce bugs against a branch's exact code, with shared scripts for databases and test runs."
+    }
+  ]
+}

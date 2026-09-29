@@ -1,0 +1,24 @@
+# Odoo workspace conf for the nimi skills, written by /setup-nimi-skills.
+#
+# One section per Odoo version. Scripts pick the section from the target's
+# __manifest__ versions and branch name, and stop to ask (--odoo-version) when
+# those are missing or disagree. Relative paths resolve against this file.
+# Keep it out of shared repos: it holds this machine's paths.
+
+[19.0]
+# Odoo Community checkout (the directory holding odoo-bin). Required.
+community = ~/odoo/19/odoo
+# Odoo Enterprise checkout. Leave out for community-only.
+enterprise = ~/odoo/19/enterprise
+# Interpreter with this version's requirements installed.
+python = ~/odoo/19/venv/bin/python
+# Git repos with custom modules, comma-separated. Branch names given to the
+# scripts are looked up in these repos' worktrees. Their git submodules (e.g. OCA
+# repos) go on the addons path automatically, as on Odoo.sh.
+projects = ~/odoo/19/client-a, ~/odoo/19/client-b
+
+[18.0]
+community = ~/odoo/18/odoo
+enterprise = ~/odoo/18/enterprise
+python = ~/odoo/18/venv/bin/python
+projects = ~/odoo/18/client-c

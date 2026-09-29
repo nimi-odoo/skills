@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Claude Code's local state, written when a session runs inside the clone.
+# The plugin manifests live in .claude-plugin/, which stays tracked.
+.claude/
+
+# A workspace conf saved inside the clone holds one machine's paths
+odoo-workspace.conf
