@@ -1,6 +1,6 @@
 ---
 name: reprodoo
-description: Reproduce an Odoo bug on a staging/dev branch locally and deterministically against the exact branch code, including Python (ORM/RPC) and JS (browser/UI) failure modes. Use when the user reports a runtime error on an Odoo.sh branch and you need a fast feedback loop to find the cause.
+description: Reproduce an Odoo bug locally against exact branch code (Python ORM/RPC or JS/UI) for a fast debug loop. Use proactively whenever debugging Odoo behavior — staging errors, local failures, or verifying a fix.
 ---
 
 # Reproduce staging-branch Odoo bugs locally

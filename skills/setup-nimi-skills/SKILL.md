@@ -1,6 +1,6 @@
 ---
 name: setup-nimi-skills
-description: "Set up this machine's Odoo workspace for the nimi skills: find the Odoo checkouts, Enterprise checkouts, venvs and project repos, confirm them with the user, and write the workspace conf the other skills read. Run once before first use, and again when adding an Odoo version or project."
+description: "Detect Odoo/Enterprise checkouts, venvs, project repos; write the workspace conf. Run once, or when adding a version/project."
 disable-model-invocation: true
 ---
 
