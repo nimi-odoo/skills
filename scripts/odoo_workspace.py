@@ -248,6 +248,23 @@ def free_port(start):
     sys.exit(f"No free port between {start} and {start + 99}")
 
 
+def report_failure(run):
+    """Call run(), printing a `>>> FAILED: <reason>` line on any error exit.
+
+    A skill waiting on a background script's log stops at this line the way it stops at READY.
+    """
+    try:
+        run()
+    except SystemExit as e:
+        if not e.code:
+            raise
+        print(f">>> FAILED: {e.code}", flush=True)
+        sys.exit(1)
+    except Exception as e:
+        print(f">>> FAILED: {e!r}", flush=True)
+        raise
+
+
 # ─── Conf ────────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -269,7 +286,7 @@ class Config:
         paths = [self.community / 'addons']
         if self.enterprise:
             paths.append(self.enterprise)
-        for root in more:
+        for root in filter(None, more):
             paths += addons_dirs(Path(root))
         return ','.join(str(p) for p in paths)
 
@@ -298,18 +315,18 @@ class Config:
             print(f"Installing into {db}: {','.join(missing)}", flush=True)
             self.install(db, addons, ','.join(missing))
 
-    def install(self, db, addons, modules):
+    def install(self, db, addons, modules, flag='-i'):
         """Install modules into db (creating it if needed), keeping the output in a log rather than the terminal."""
         log = LOG_DIR / f'{db}-install.log'
         print(f"Install log: {log}", flush=True)
         with open(log, 'w') as out:
             result = subprocess.run(self.odoo(
-                db, addons, '-i', modules, '--stop-after-init', '--without-demo=all', '--no-http',
+                db, addons, flag, modules, '--stop-after-init', '--without-demo=all', '--no-http',
             ), stdout=out, stderr=subprocess.STDOUT)
         lines = log.read_text(errors='replace').splitlines()
         print(lines[-1] if lines else '(no output)', flush=True)
         if result.returncode:
-            sys.exit(f"Install failed (exit {result.returncode}); see {log}")
+            sys.exit(f"{'Update' if flag == '-u' else 'Install'} failed (exit {result.returncode}); see {log}")
 
 
 def find_conf(path=None):
@@ -350,6 +367,10 @@ class Conf:
     def projects(self):
         """Distinct project repos across all sections."""
         return sorted({p for section in self.sections.values() for p in self._list(section, 'projects')})
+
+    def generators(self):
+        """(version, folder) for each folder of data generators in the conf, the `generators` key."""
+        return [(name, p) for name, section in self.sections.items() for p in self._list(section, 'generators')]
 
     def _owning_sections(self, target):
         """Sections whose community or enterprise checkout contains target.

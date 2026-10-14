@@ -6,6 +6,7 @@ Claude Code skills for working on Odoo projects locally.
 |---|---|
 | `/setup-nimi-skills` | Finds the local Odoo checkouts, Enterprise checkouts, venvs and project repos, confirms them, and writes the workspace conf the other skills read. Run it once before the other skills. |
 | `/reprodoo` | Reproduces an Odoo bug against a branch's exact code, in `odoo-bin shell` for Python errors or a local server plus Chrome for UI errors. See [its README](skills/reprodoo/README.md). |
+| `/spin-db` | Spins up a local server with a database of its own for the workflow being discussed: installs the modules, seeds the records with a data generator (one the user supplies, a saved one, or one it writes and offers to save), and hands over a URL and walkthrough. Serves the worktree live, so edits show up. |
 
 ## Install
 
@@ -73,22 +74,24 @@ Shared by the skills, in `scripts/`. They also work by hand.
 |---|---|
 | `repro.py` | Run a bug script in `odoo-bin shell`, or serve HTTP for browser repros |
 | `run_tests.py` | `run_tests.py MODULE[,MODULE...]\|all [Test.method] [--python\|--js] [--fresh] [--custom-root=PATH]`: Python and JS tests for any number of modules in one run, or one suite with `--python` / `--js`. JS tests use Hoot, which arrived in Odoo 18.0; on earlier versions only the Python tests run, and the output says the JS tests were skipped |
+| `spin.py` | `spin.py start\|seed\|generators\|list\|stop\|cleanup`: serve a worktree (or Community/Enterprise only) against its own database, run data generators against it, and clean it up |
 | `odoo_workspace.py` | The conf, version picking, database naming, and `find` for setup |
 
 ## Databases
 
-Both scripts reuse their databases between runs:
+The scripts reuse their databases between runs:
 
 | Name | Made by | Holds |
 |---|---|---|
 | `odoo-repro-<name>` | `repro.py` | One bug's setup. `<name>` is a short slug for what's being reproduced, picked by the skill |
 | `odoo-tests-<repo>-<branch>` | `run_tests.py` | Every module tested on that branch so far; new ones are installed on the run that asks for them |
+| `odoo-spin-<name>` | `spin.py` | One workflow's modules and seeded records. `<name>` is a short slug for the workflow, picked by the skill |
 
-Each database is tagged with the repo and branch it was built from. When a name is already taken by a database built from other code, the script uses `<name>-2`, `-3`, … and says so. Names are cut to Postgres' 63-byte limit, ending in a short hash when cut.
+Each database is tagged with the code it was built from (repo and branch, or for spins the version and served folder). When a name is already taken by a database built from other code, the script uses `<name>-2`, `-3`, … and says so. Names are cut to Postgres' 63-byte limit, ending in a short hash when cut.
 
 To reset databases:
-- `--fresh`, on either script, drops the database for that run and builds it again, e.g. after a branch removes a module.
-- `run_tests.py --cleanup` drops every `odoo-tests-*` database at once. Repro databases are dropped one at a time with `dropdb odoo-repro-<name>`.
+- `--fresh`, on any of the scripts, drops the database for that run and builds it again, e.g. after a branch removes a module.
+- `run_tests.py --cleanup` drops every `odoo-tests-*` database at once. Repro databases are dropped one at a time with `dropdb odoo-repro-<name>`, and spins with `spin.py cleanup --name=<name>`, which also stops the server and removes the filestore.
 
 ## Ports
 
@@ -97,5 +100,10 @@ To reset databases:
 | An Odoo started by hand for development | 8069 | |
 | `run_tests.py` | 8169 | `ODOO_TEST_PORT` |
 | `repro.py --serve` | 8269 | `--port` |
+| `spin.py start` | 8369 | `--port` |
 
-The defaults differ so all three can run at the same time. When a script's port is already taken, for example by a second repro, it uses the next free one and prints which.
+The defaults differ so all of them can run at the same time. When a script's port is already taken, for example by a second repro, it uses the next free one and prints which.
+
+## Data generators
+
+`/spin-db` seeds its databases with generators: Python files run in `odoo-bin shell` with `env` as a global. The first line of the docstring says what one creates, `seed_args()` (from `spin.py`) reads its `key=value` arguments, and it's safe to run twice. Keep the ones worth reusing in folders listed under the version's `generators` key in the conf; `spin.py generators` lists them.

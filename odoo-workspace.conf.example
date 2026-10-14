@@ -16,6 +16,8 @@ python = ~/odoo/19/venv/bin/python
 # scripts are looked up in these repos' worktrees. Their git submodules (e.g. OCA
 # repos) go on the addons path automatically, as on Odoo.sh.
 projects = ~/odoo/19/client-a, ~/odoo/19/client-b
+# Folders of data generators for /spin-db, comma-separated. Optional.
+generators = ~/odoo/generators/19.0
 
 [18.0]
 community = ~/odoo/18/odoo

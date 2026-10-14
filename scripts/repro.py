@@ -223,12 +223,13 @@ def _source_worktree(args, repo):
     return None
 
 
-def _run_bug_script(cfg, db, worktree, bug_script):
+def _run_bug_script(cfg, db, worktree, bug_script, env_vars=None):
     scripts_dir = Path(__file__).resolve().parent
-    env = {**os.environ, 'PYTHONPATH': f"{scripts_dir}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"}
+    env = {**os.environ, **(env_vars or {}),
+           'PYTHONPATH': f"{scripts_dir}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"}
     with open(bug_script) as f:
-        subprocess.run(cfg.odoo(db, worktree, '--no-http', '--log-level=warn', command='shell'),
-                       env=env, stdin=f, check=False)
+        return subprocess.run(cfg.odoo(db, worktree, '--no-http', '--log-level=warn', command='shell'),
+                              env=env, stdin=f, check=False)
 
 
 def _host(db):
@@ -236,12 +237,12 @@ def _host(db):
     return re.sub(r'[^a-z0-9-]+', '-', db.lower()).strip('-')[:63] + '.localhost'
 
 
-def _serve(cfg, db, worktree, port):
-    """Start odoo-bin HTTP and stream its logs. Blocks until killed."""
+def _serve(cfg, db, worktree, port, *extra_flags):
+    """Start odoo-bin HTTP and stream its logs. Blocks until killed; returns whether it got as far as serving."""
     ready_re = re.compile(r'HTTP service \(.*\) running|HTTP service running', re.IGNORECASE)
     proc = subprocess.Popen(
         # The db filter keeps a session cookie from another repro's database from being accepted here.
-        cfg.odoo(db, worktree, f'--http-port={port}', '--workers=0', f'--db-filter=^{re.escape(db)}$'),
+        cfg.odoo(db, worktree, f'--http-port={port}', '--workers=0', f'--db-filter=^{re.escape(db)}$', *extra_flags),
         stderr=subprocess.STDOUT, stdout=subprocess.PIPE, text=True, bufsize=1,
     )
     ready_printed = False
@@ -260,6 +261,7 @@ def _serve(cfg, db, worktree, port):
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+    return ready_printed
 
 
 def main():

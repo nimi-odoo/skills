@@ -1,7 +1,7 @@
 {
   "name": "nimi-skills",
   "version": "0.1.0",
-  "description": "Skills for working on Odoo projects locally: reproduce bugs against a branch's exact code, with shared scripts for databases and test runs.",
+  "description": "Agentic skills for Odoo Development",
   "keywords": [
     "odoo",
     "debugging",
