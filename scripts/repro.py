@@ -330,10 +330,11 @@ def main():
         port = ws.free_port(args.port)
         if port != args.port:
             print(f">>> Port {args.port} taken, serving on {port}")
-        _serve(cfg, db, worktree, port)
+        if not _serve(cfg, db, worktree, port):
+            sys.exit("odoo-bin stopped before serving; see its output above")
     else:
         _run_bug_script(cfg, db, worktree, args.bug_script)
 
 
 if __name__ == '__main__':
-    main()
+    ws.report_failure(main)

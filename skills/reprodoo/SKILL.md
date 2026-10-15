@@ -144,10 +144,10 @@ python3 $SCRIPTS/repro.py <target> --serve --conf=<path> --name=<slug> \
 python3 $SCRIPTS/repro.py --ref=<ref> --serve --conf=<path> --name=<slug> > $CLAUDE_JOB_DIR/tmp/serve_<slug>.log 2>&1
 ```
 
-Then wait for it to come up:
+Then wait for it to end on `>>> READY` or `>>> FAILED`:
 
 ```bash
-until grep -q ">>> READY" $CLAUDE_JOB_DIR/tmp/serve_<slug>.log; do sleep 1; done; grep ">>> READY" $CLAUDE_JOB_DIR/tmp/serve_<slug>.log
+until grep -qE ">>> (READY|FAILED)" $CLAUDE_JOB_DIR/tmp/serve_<slug>.log; do sleep 1; done; grep ">>> " $CLAUDE_JOB_DIR/tmp/serve_<slug>.log
 ```
 
 The line reads `>>> READY: http://odoo-repro-<name>.localhost:<port>/web (db=...)`. Take the URL from it rather than assuming a port.
