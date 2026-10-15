@@ -15,6 +15,11 @@ name, which means the worktree that has it checked out in one of the conf's proj
 Leave it out to serve Community (and Enterprise) only. Unlike repro.py, the code is
 served where it is, with --dev=reload,xml, so edits made there show up on the server.
 
+start returns once the server accepts requests, printing a `>>> READY: <url>` line, or
+a `>>> FAILED: <reason>` line when it doesn't get there. odoo-bin keeps running on its
+own, logging to <tmp>/odoo-spin-<name>.log, until `stop` ends it; stop returns once
+it's gone, so a start right after it gets the port and the log to itself.
+
 Each spin gets its own database, odoo-spin-<name>, tagged with the version and the
 code it serves. A name already used for other code moves on to <name>-2; the run
 prints the name it used, which the other commands take.
@@ -35,14 +40,13 @@ import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import odoo_workspace as ws  # noqa: E402
-from repro import _run_bug_script, _serve, _tmp_root  # noqa: E402
+from repro import _run_bug_script, _serve, _servers, _stop, _tmp_root  # noqa: E402
 
 PREFIX = 'odoo-spin'
 DEFAULT_PORT = 8369  # 8069 = dev, 8169 = run_tests.py, 8269 = repro.py
@@ -131,19 +135,6 @@ def _spun(db):
     return match['version'], None if addons == NO_ADDONS else Path(addons)
 
 
-def _servers():
-    """(pid, db, port) of every running spin server."""
-    out = subprocess.run(['ps', '-axww', '-o', 'pid=,command='], capture_output=True, text=True).stdout
-    servers = []
-    for line in out.splitlines():
-        pid, _, command = line.strip().partition(' ')
-        db = re.search(rf' -d ({PREFIX}-\S+)', command)
-        port = re.search(r'--http-port=(\d+)', command)
-        if 'odoo-bin' in command and db and port:
-            servers.append((int(pid), db[1], int(port[1])))
-    return servers
-
-
 def _filestores(db):
     """Where Odoo's default data dir keeps db's attachments, on macOS and Linux."""
     home = Path.home()
@@ -173,7 +164,7 @@ def cmd_start(conf, args):
     print(f"Database: {db}", flush=True)
     print(f"Addons: {addons or NO_ADDONS}" + (" (served live)" if addons else ''), flush=True)
 
-    running = [s for s in _servers() if s[1] == db]
+    running = [s for s in _servers(db) if s[1] == db]
     if running:
         sys.exit(f"{db} is already served on port {running[0][2]} (pid {running[0][0]}); "
                  f"`spin.py stop --name={args.name}` first")
@@ -194,8 +185,7 @@ def cmd_start(conf, args):
     if port != args.port:
         print(f">>> Port {args.port} taken, serving on {port}", flush=True)
     print("Login: admin / admin", flush=True)
-    if not _serve(cfg, db, addons, port, '--dev=reload,xml'):
-        sys.exit("odoo-bin stopped before serving; see its output above")
+    _serve(cfg, db, addons, port, '--dev=reload,xml')
 
 
 def cmd_seed(conf, args):
@@ -239,7 +229,7 @@ def cmd_generators(conf, args):
 
 
 def cmd_list(conf, args):
-    servers = _servers()
+    servers = _servers(PREFIX)
     print("Running:")
     for pid, db, port in servers:
         print(f"  {db}: http://{db}.localhost:{port}/web (pid {pid})")
@@ -255,13 +245,7 @@ def cmd_list(conf, args):
 
 
 def cmd_stop(conf, args):
-    db = ws.db_name(PREFIX, args.name)
-    servers = [s for s in _servers() if s[1] == db]
-    for pid, _db_name, port in servers:
-        os.kill(pid, signal.SIGTERM)
-        print(f"Stopped {db} on port {port} (pid {pid})")
-    if not servers:
-        print(f"No server running for {db}")
+    _stop(ws.db_name(PREFIX, args.name))
 
 
 def cmd_cleanup(conf, args):
@@ -276,7 +260,7 @@ def main():
     p.add_argument('--conf', help='Workspace conf (default: $ODOO_WORKSPACE_CONF)')
     sub = p.add_subparsers(dest='command', required=True)
 
-    start = sub.add_parser('start', help='Create or reuse the database and serve it (blocks)')
+    start = sub.add_parser('start', help='Create or reuse the database and serve it; returns once it serves')
     start.add_argument('target', nargs='?',
                        help='Worktree/addons path or checked-out branch to serve live; omit for none')
     start.add_argument('--name', required=True, help='Short slug; the DB is odoo-spin-<name>')

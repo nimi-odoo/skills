@@ -34,21 +34,18 @@ State what you're spinning up (code, modules, name) in one sentence and carry on
 
 ## 1. Start the server
 
-Start it with `run_in_background`, sending its output to a log:
+Start it with `run_in_background`, since installing modules can take minutes; you're notified when it exits:
 
 ```bash
 python3 $SCRIPTS/spin.py --conf=<path> start [<target>] --name=<slug> --modules=<a,b> \
-    [--update=<a,b>] [--odoo-version=V] [--repo=PATH] [--fresh] > $CLAUDE_JOB_DIR/tmp/spin_<slug>.log 2>&1
+    [--update=<a,b>] [--odoo-version=V] [--repo=PATH] [--fresh]
 ```
 
-Wait for it to end on `>>> READY` or `>>> FAILED`:
-
-```bash
-until grep -qE ">>> (READY|FAILED)" $CLAUDE_JOB_DIR/tmp/spin_<slug>.log; do sleep 1; done; grep -v "^20..-" $CLAUDE_JOB_DIR/tmp/spin_<slug>.log
-```
+It exits once the server accepts requests, ending on `>>> READY: <url>`, or ends on `>>> FAILED: <reason>` with the end of the server log above it. The server keeps running after it exits.
 
 - `Name:` is the name to use from now on. A name already used for other code moves on to `<slug>-2`.
 - `>>> READY: <url>` gives the URL.
+- `Server log:` is where the running server logs; read it for tracebacks.
 - Login is `admin` / `admin`.
 
 ## 2. Seed the data
@@ -121,16 +118,16 @@ Assume the user knows Odoo; don't explain standard navigation. Use the URL's hos
 
 When you edit the served worktree during the conversation, keep the server current without asking, and tell the user when it's back:
 - **XML templates and views**: `--dev=xml` reloads QWeb templates. New or changed views, fields, data files or JS need an update.
-- **Python**: `--dev=reload` restarts on edits only when `watchdog` is installed in the venv. The log says `'watchdog' module not installed` when it isn't; then restart.
+- **Python**: `--dev=reload` restarts on edits only when `watchdog` is installed in the venv. The server log says `'watchdog' module not installed` when it isn't; then restart.
 
 To restart, with an update of the edited modules:
 
 ```bash
-python3 $SCRIPTS/spin.py stop --name=<name>
-python3 $SCRIPTS/spin.py --conf=<path> start [<target>] --name=<name> --update=<edited modules> > $CLAUDE_JOB_DIR/tmp/spin_<slug>.log 2>&1   # run_in_background
+python3 $SCRIPTS/spin.py stop --name=<name>   # returns once the server is gone
+python3 $SCRIPTS/spin.py --conf=<path> start [<target>] --name=<name> --update=<edited modules>   # run_in_background
 ```
 
-Then wait for READY as in step 1 and take the port from it again.
+Then take the port from its READY line again.
 
 ## 5. Clean up
 

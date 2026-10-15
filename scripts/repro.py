@@ -6,6 +6,11 @@ CLI usage:
     python repro.py <target> <bug_script.py> [--name=SLUG] [--modules=A,B,C] [--fresh] [--conf=PATH]
     python repro.py --ref=<ref> <bug_script.py> [--name=SLUG] ...
     python repro.py <target> --serve [--name=SLUG] [--port=8269] ...
+    python repro.py --stop --name=SLUG
+
+--serve returns once the server accepts requests, printing a `>>> READY: <url>` line. odoo-bin
+keeps running on its own, logging to <tmp>/odoo-repro-<name>.log, until --stop ends it; --stop
+returns once it's gone.
 
 Every repro runs in its own detached worktree in the job tmp dir; the code it starts
 from is never edited. <target> says where to start: a branch name starts from
@@ -27,14 +32,21 @@ Library usage (from inside a bug script run via odoo-bin shell):
 import argparse
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
+from contextlib import suppress
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import odoo_workspace as ws  # noqa: E402
+
+PREFIX = 'odoo-repro'
+SERVE_TIMEOUT = 120  # seconds for odoo-bin to accept requests; installs are done before it starts
+STOP_TIMEOUT = 15  # seconds for odoo-bin to shut down on SIGTERM before it gets SIGKILL
 
 
 # ─── Library helpers ─────────────────────────────────────────────────────────
@@ -237,31 +249,92 @@ def _host(db):
     return re.sub(r'[^a-z0-9-]+', '-', db.lower()).strip('-')[:63] + '.localhost'
 
 
+# The line odoo-bin logs once it accepts requests.
+READY_RE = re.compile(r'HTTP service \(.*\) running|HTTP service running', re.IGNORECASE)
+
+
+def _log(db):
+    """The log db's odoo-bin writes to while it serves."""
+    return _tmp_root() / f'{db}.log'
+
+
+def _servers(prefix):
+    """(pid, db, port) of every running odoo-bin serving a database whose name starts with prefix.
+
+    Matched on the command's arguments rather than its text, so a shell or grep whose command
+    line mentions a server isn't taken for one.
+    """
+    out = subprocess.run(['ps', '-axww', '-o', 'pid=,stat=,args='], capture_output=True, text=True).stdout
+    servers = []
+    for line in out.splitlines():
+        pid, stat, *argv = line.split()
+        db = dict(zip(argv, argv[1:])).get('-d', '')
+        ports = [arg.removeprefix('--http-port=') for arg in argv if arg.startswith('--http-port=')]
+        is_odoo_bin = any(arg.endswith('/odoo-bin') for arg in argv[:2])
+        if is_odoo_bin and not stat.startswith('Z') and db.startswith(prefix) and ports:
+            servers.append((int(pid), db, int(ports[0])))
+    return servers
+
+
+def _running(pid):
+    """Whether pid is alive; one that exited but isn't reaped yet (state Z) isn't."""
+    stat = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(stat) and not stat.startswith('Z')
+
+
+def _gone(pid, timeout):
+    """Whether pid is gone within timeout seconds."""
+    deadline = time.monotonic() + timeout
+    while _running(pid):
+        if deadline < time.monotonic():
+            return False
+        time.sleep(0.2)
+    return True
+
+
+def _terminate(pid):
+    """End pid, returning once it's gone."""
+    with suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGTERM)
+        if not _gone(pid, STOP_TIMEOUT):
+            os.kill(pid, signal.SIGKILL)
+            _gone(pid, STOP_TIMEOUT)
+
+
+def _stop(db):
+    """End the servers of db, returning once they're gone, so a start right after gets the port and log to itself."""
+    servers = [s for s in _servers(db) if s[1] == db]
+    for pid, _db, port in servers:
+        _terminate(pid)
+        print(f"Stopped {db} on port {port} (pid {pid})", flush=True)
+    if not servers:
+        print(f"No server running for {db}", flush=True)
+
+
 def _serve(cfg, db, worktree, port, *extra_flags):
-    """Start odoo-bin HTTP and stream its logs. Blocks until killed; returns whether it got as far as serving."""
-    ready_re = re.compile(r'HTTP service \(.*\) running|HTTP service running', re.IGNORECASE)
-    proc = subprocess.Popen(
-        # The db filter keeps a session cookie from another repro's database from being accepted here.
-        cfg.odoo(db, worktree, f'--http-port={port}', '--workers=0', f'--db-filter=^{re.escape(db)}$', *extra_flags),
-        stderr=subprocess.STDOUT, stdout=subprocess.PIPE, text=True, bufsize=1,
-    )
-    ready_printed = False
-    try:
-        for line in proc.stdout:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-            if not ready_printed and ready_re.search(line):
-                print(f">>> READY: http://{_host(db)}:{port}/web (db={db})", flush=True)
-                ready_printed = True
-    except KeyboardInterrupt:
-        pass
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-    return ready_printed
+    """Start odoo-bin on its own and return once it accepts requests; exit with the end of its log when it doesn't."""
+    log = _log(db)
+    with log.open('wb') as out:
+        # A session of its own keeps odoo-bin running after this script exits, out of reach of its terminal's signals.
+        # The db filter keeps a session cookie from another database from being accepted here.
+        proc = subprocess.Popen(
+            cfg.odoo(db, worktree, f'--http-port={port}', '--workers=0', f'--db-filter=^{re.escape(db)}$',
+                     *extra_flags),
+            stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
+        )
+    print(f"Server log: {log}", flush=True)
+    deadline = time.monotonic() + SERVE_TIMEOUT
+    while proc.poll() is None and time.monotonic() < deadline:
+        if READY_RE.search(log.read_text(errors='replace')):
+            print(f">>> READY: http://{_host(db)}:{port}/web (db={db})", flush=True)
+            return
+        time.sleep(0.5)
+    timed_out = proc.poll() is None
+    if timed_out:
+        _terminate(proc.pid)
+    print(''.join(log.read_text(errors='replace').splitlines(keepends=True)[-40:]), end='', flush=True)
+    reason = f"odoo-bin didn't accept requests within {SERVE_TIMEOUT}s" if timed_out else "odoo-bin stopped before serving"
+    sys.exit(f"{reason}; see the end of its log above")
 
 
 def main():
@@ -286,7 +359,14 @@ def main():
     p.add_argument('--port', type=int, default=8269,
                    help='Lowest HTTP port to try for --serve; climbs if taken '
                         '(default 8269; 8069=dev, 8169=tests)')
+    p.add_argument('--stop', action='store_true', help="Stop --name's server, returning once it's gone")
     args = p.parse_args()
+
+    if args.stop and not args.name:
+        sys.exit("--stop needs --name")
+    if args.stop:
+        _stop(ws.db_name(PREFIX, args.name))
+        return
 
     # --ref supplies the worktree, so a lone positional there is the bug script.
     if args.ref and args.target and not args.bug_script:
@@ -307,7 +387,7 @@ def main():
         _note_local_ahead(repo, args.target)
 
     tag = f"{repo}@{source}"
-    db, exists = ws.claim_db('odoo-repro', args.name or f"{repo.name}-{source}", tag)
+    db, exists = ws.claim_db(PREFIX, args.name or f"{repo.name}-{source}", tag)
     worktree, cfg = _repro_worktree(conf, args, repo, ref, source, db)
     print(f"Worktree: {worktree} (from {ref})", flush=True)
     source_worktree = _source_worktree(args, repo)
@@ -316,6 +396,10 @@ def main():
     print(f"Odoo {cfg.version} ({cfg.reason})", flush=True)
     print(f"Database: {db}", flush=True)
 
+    running = [s for s in _servers(db) if s[1] == db]
+    if args.serve and running:
+        sys.exit(f"{db} is already served on port {running[0][2]} (pid {running[0][0]}); "
+                 f"`repro.py --stop --name={db.removeprefix(PREFIX + '-')}` first")
     if args.fresh and exists:
         print(f"Dropping {db} (--fresh)", flush=True)
         subprocess.run(['dropdb', db], check=True)
@@ -329,9 +413,8 @@ def main():
     if args.serve:
         port = ws.free_port(args.port)
         if port != args.port:
-            print(f">>> Port {args.port} taken, serving on {port}")
-        if not _serve(cfg, db, worktree, port):
-            sys.exit("odoo-bin stopped before serving; see its output above")
+            print(f">>> Port {args.port} taken, serving on {port}", flush=True)
+        _serve(cfg, db, worktree, port)
     else:
         _run_bug_script(cfg, db, worktree, args.bug_script)
 

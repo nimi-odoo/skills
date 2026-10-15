@@ -134,25 +134,23 @@ When the script raises, reach for the helper matching the error class:
 
 `repro.py --serve` brings the HTTP server up on **port 8269** (8069 = dev, 8169 = `run_tests.py`, 8269 = reprodoo, so all three can run at once). `--port` is the lowest port to try: when it's taken the script climbs to the next free one and prints where it landed, so parallel serves each get their own.
 
-Start it with `run_in_background`, sending its output to a log, and keep it alive while you drive the browser:
+Start it with `run_in_background`, since a first run builds a worktree and a database; you're notified when it exits:
 
 ```bash
 python3 $SCRIPTS/repro.py <target> --serve --conf=<path> --name=<slug> \
-    [--repo=PATH] [--fresh] [--port=8269] [--odoo-version=V] > $CLAUDE_JOB_DIR/tmp/serve_<slug>.log 2>&1
+    [--repo=PATH] [--fresh] [--port=8269] [--odoo-version=V]
 
 # or, from any other ref or commit
-python3 $SCRIPTS/repro.py --ref=<ref> --serve --conf=<path> --name=<slug> > $CLAUDE_JOB_DIR/tmp/serve_<slug>.log 2>&1
+python3 $SCRIPTS/repro.py --ref=<ref> --serve --conf=<path> --name=<slug>
 ```
 
-Then wait for it to end on `>>> READY` or `>>> FAILED`:
+It exits once the server accepts requests, ending on `>>> READY: http://odoo-repro-<name>.localhost:<port>/web (db=...)`, or ends on `>>> FAILED: <reason>` with the end of the server log above it. Take the URL from the READY line rather than assuming a port. The server keeps running after it exits; `Server log:` is where it logs, for tracebacks.
+
+To stop the server, with `<name>` from the `Database: odoo-repro-<name>` line (it returns once the server is gone):
 
 ```bash
-until grep -qE ">>> (READY|FAILED)" $CLAUDE_JOB_DIR/tmp/serve_<slug>.log; do sleep 1; done; grep ">>> " $CLAUDE_JOB_DIR/tmp/serve_<slug>.log
+python3 $SCRIPTS/repro.py --stop --name=<name>
 ```
-
-The line reads `>>> READY: http://odoo-repro-<name>.localhost:<port>/web (db=...)`. Take the URL from it rather than assuming a port.
-
-To stop the server: `pkill -f "odoo-bin.*--http-port=<port>"`, with the port from the READY line. Odoo prints cron-thread tracebacks while shutting down; they're harmless.
 
 ### Driving Chrome
 
