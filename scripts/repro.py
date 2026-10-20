@@ -14,8 +14,9 @@ returns once it's gone.
 
 Every repro runs in its own detached worktree in the job tmp dir; the code it starts
 from is never edited. <target> says where to start: a branch name starts from
-origin/<branch> (fetched first), a path to an existing worktree starts from that
-worktree's current commit, and --ref starts from any ref or commit.
+origin/<branch> (fetched first), or the local branch when origin doesn't have it, a path
+to an existing worktree starts from that worktree's current commit, and --ref starts
+from any ref or commit.
 
 Each bug gets its own database, odoo-repro-<name>, and worktree, <version>-repro-<name>, where
 --name is a short slug for what's being reproduced (default: <repo>-<branch>). The
@@ -130,16 +131,26 @@ def _on_origin(repo, branch):
             or _git_ok(repo, 'ls-remote', '--exit-code', '--heads', 'origin', branch))
 
 
+def _branch_ref(repo, branch):
+    """origin/<branch> when origin has it, else the local branch, else None."""
+    if _on_origin(repo, branch):
+        return f'origin/{branch}'
+    if _git_ok(repo, 'rev-parse', '--verify', '-q', f'refs/heads/{branch}'):
+        return branch
+    return None
+
+
 def _branch_repo(branch, repos):
-    """The one project repo whose origin has branch."""
+    """(repo, ref) for the one project repo that has branch, on origin or locally."""
     if not repos:
         _require_repo(None)
-    matches = [repo for repo in repos if _on_origin(_require_repo(repo), branch)]
+    matches = [(repo, ref) for repo in repos if (ref := _branch_ref(_require_repo(repo), branch))]
     if not matches:
-        sys.exit(f"No project repo has origin/{branch} ({', '.join(map(str, repos))}). "
+        sys.exit(f"No project repo has origin/{branch} or a local {branch} ({', '.join(map(str, repos))}). "
                  "Pass --repo=PATH, or --ref=<commit> for a commit that isn't on a branch.")
     if 1 < len(matches):
-        sys.exit(f"origin/{branch} exists in several repos ({', '.join(map(str, matches))}); pass --repo=PATH")
+        sys.exit(f"{branch} exists in several repos ({', '.join(str(repo) for repo, _ref in matches)}); "
+                 "pass --repo=PATH")
     return matches[0]
 
 
@@ -160,7 +171,8 @@ def _ref_repo(conf, repo, version, ref):
 def _resolve_base(conf, args, repo):
     """(repo, ref, source) the repro starts from; source names it for the database tag and label.
 
-    A branch name starts from origin/<branch>, what's deployed. A worktree path starts from that
+    A branch name starts from origin/<branch>, what's deployed, or the local branch when origin
+    doesn't have it (no remote, or not pushed yet). A worktree path starts from that
     worktree's current commit. --ref starts from any ref or commit. The source itself is never edited.
     """
     if args.ref:
@@ -171,8 +183,12 @@ def _resolve_base(conf, args, repo):
             sys.exit(f"Worktree path not found: {path}")
         head = ws._git_out(path, 'rev-parse', 'HEAD') or sys.exit(f"Not a git checkout: {path}")
         return _require_repo(ws.main_checkout(path)), head, ws.current_branch(path) or path.name
-    repo = repo or _branch_repo(args.target, conf.projects())
-    return repo, f'origin/{args.target}', args.target
+    if not repo:
+        repo, ref = _branch_repo(args.target, conf.projects())
+    else:
+        ref = (_branch_ref(repo, args.target)
+               or sys.exit(f"{repo} has neither origin/{args.target} nor a local {args.target}"))
+    return repo, ref, args.target
 
 
 def _note_local_ahead(repo, branch):
@@ -383,7 +399,7 @@ def main():
     conf = ws.Conf(args.conf)
     repo = args.repo.expanduser().resolve() if args.repo else None
     repo, ref, source = _resolve_base(conf, args, repo)
-    if args.target and not args.ref and not _is_path(args.target):
+    if args.target and not args.ref and ref == f'origin/{args.target}':
         _note_local_ahead(repo, args.target)
 
     tag = f"{repo}@{source}"

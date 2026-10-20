@@ -56,7 +56,7 @@ If any required field is missing, ask once with all gaps in a single question.
 
 Every repro runs in a worktree of its own, `<version>-repro-<name>` (e.g. `19.0-repro-cashier-refund-crash`), created by `repro.py` in the job's temp dir (`$CLAUDE_JOB_DIR/tmp`, or the system temp dir outside a job). The code it starts from is never edited: not the user's worktree for that branch, and not their main checkout. The first argument (`<target>`) only says where to start:
 
-1. **A branch name** (the usual case, e.g. `<staging-branch-experiencing-issue>`) → starts from `origin/<branch>`, fetched first: the code that's deployed. If the user's local branch has commits origin doesn't, the script prints a note; mention it, since those commits aren't in the repro.
+1. **A branch name** (the usual case, e.g. `<staging-branch-experiencing-issue>`) → starts from `origin/<branch>`, fetched first: the code that's deployed. When origin doesn't have it (no remote, or not pushed yet), it starts from the local branch instead. If the user's local branch has commits origin doesn't, the script prints a note; mention it, since those commits aren't in the repro.
 2. **A path to an existing worktree** (e.g. one a PR review left behind) → starts from that worktree's current commit. Its uncommitted changes aren't carried over.
 3. **`--ref=<ref or commit>`** → starts from anything else, such as a commit a user says introduced the bug.
 
@@ -95,7 +95,7 @@ Often a bug surfaces as a JS alert but is actually a Python exception serialised
 `repro.py` runs the bug script inside `odoo-bin shell --no-http`. The script gets `env` as a global.
 
 ```bash
-# from a branch (origin/<branch>) or an existing worktree's commit
+# from a branch (origin/<branch>, else the local branch) or an existing worktree's commit
 python3 $SCRIPTS/repro.py <target> $CLAUDE_JOB_DIR/tmp/repro_<name>.py --conf=<path> --name=<slug> \
     [--repo=PATH] [--modules=A,B,C] [--fresh] [--odoo-version=V]
 
