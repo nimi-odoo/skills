@@ -319,9 +319,12 @@ class Config:
         """Install modules into db (creating it if needed), keeping the output in a log rather than the terminal."""
         log = LOG_DIR / f'{db}-install.log'
         print(f"Install log: {log}", flush=True)
+        # --unaccent gives a new database the unaccent extension, which 16.0+ marks immutable so modules
+        # can index unaccent() expressions. Odoo.sh databases ship with it the same way, so searches
+        # ignore accents as they do there. Odoo reads the flag only when it creates the database.
         with open(log, 'w') as out:
             result = subprocess.run(self.odoo(
-                db, addons, flag, modules, '--stop-after-init', '--without-demo=all', '--no-http',
+                db, addons, flag, modules, '--stop-after-init', '--without-demo=all', '--no-http', '--unaccent',
             ), stdout=out, stderr=subprocess.STDOUT)
         lines = log.read_text(errors='replace').splitlines()
         print(lines[-1] if lines else '(no output)', flush=True)
